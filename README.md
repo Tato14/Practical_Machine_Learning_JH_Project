@@ -1,2 +1,2 @@
-# Practical_Machine_Learning_JH_Project
-Project of the coursera course entitled Practice Machine Learning
+# Practical Machine Learning JH-Coursera Project
+
