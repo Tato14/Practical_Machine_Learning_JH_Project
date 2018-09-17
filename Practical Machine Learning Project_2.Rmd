@@ -1,0 +1,258 @@
+---
+title: "Practical Machine Learning Project"
+output: html_document
+---
+
+#Introduction and data loading
+
+The main issue of this project is to predict the way 6 participants perform exercice taking into account different variables obtainid with different devices placed in different parts of the participant's body. In order to perform the prediction, different machine learning algorithms were used.
+
+Before startint the analysis, different package should be loaded into R:
+
+```{r, warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(rattle)
+library(reshape)
+library(pander)
+``` 
+
+After it, training and test samples are also loaded:
+
+```{r, warning=FALSE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile = trainFile, method = "curl")
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile = testFile, method = "curl")
+}
+trainRaw <- read.csv("./data/pml-training.csv")
+testRaw <- read.csv("./data/pml-testing.csv")
+```
+
+#Data filtering 
+
+In order to obtain a clean data frame to work with, some uninformative variables were discarded:
+
+##1) Near Zero Variance Variables 
+```{r}
+NZV <- nearZeroVar(trainRaw, saveMetrics = TRUE)
+
+training01 <- trainRaw[, !NZV$nzv]
+testing01 <- testRaw[, !NZV$nzv]
+```
+
+##2) Columns that contain `NA's`
+
+```{r}
+cond <- (colSums(is.na(training01)) == 0)
+training02 <- training01[, cond]
+testing02 <- testing01[, cond]
+```
+
+##3) Columns that do not contribute much to the measurements 
+
+```{r}
+not_useful <- grepl("^X|timestamp|user_name", names(training02))
+training03 <- training02[, !not_useful]
+testing03 <- testing02[, !not_useful]
+```
+
+If the value distribution is evaluated regarding the `classe` variable:
+
+```{r}
+df.m <- melt(training03, id.var = "classe")
+p <- ggplot(data = df.m[1:1039966,]) + 
+  geom_boxplot(aes(x=variable[1:1039966], y=as.numeric(value[1:1039966]),
+                   fill=classe[1:1039966]), outlier.size = 0.05)
+p + theme_classic() + facet_wrap( ~ variable[1:1039966], scales="free") +
+  xlab("Variables") + ylab("Values") +
+  guides(fill=guide_legend(title="Classe"))+
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 4),
+        strip.text =element_text(size=5),
+        strip.background = element_blank())
+```
+
+Some variables present clear differences looking at the `classe` variable. However, it is important to mention that are some values that are clearly overlayers. Although in this exercices the variable would not be removed, a possible solution for this, would be a normalization of the data or simply discard these data points. 
+
+#Machine learning analysis
+
+Before starting the analysis, the training data is splitted gain to get a validation data to check the machine learning algorithm performance.
+
+
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(training03$classe, p = 0.70, list = FALSE)
+validation <- training03[-inTrain, ]
+training <- training03[inTrain, ]
+```
+
+In the following steps, different machine learning algorithms are performed using always the same control method:
+
+```{r}
+fitControl <- trainControl(method = "cv", number = 5)
+```
+
+
+##1) KNN
+```{r, cache=T}
+set.seed(12345)
+KNN_model <- train(classe ~ ., data = training, 
+                   method = "knn", 
+                   trControl = fitControl, tuneLength=5)
+KNN_model
+```
+
+```{r}
+set.seed(12345)
+p_KNN <- predict(KNN_model, validation)
+
+cfKNN <- confusionMatrix(p_KNN, validation$classe)
+cfKNN
+```
+
+
+##2) ANN
+```{r, cache=T, results='hide'}
+set.seed(12345)
+ANN_model <- train(classe ~ ., data = training, 
+                   method = "nnet", 
+                   trControl = fitControl, tuneLength=5)
+```
+
+```{r}
+ANN_model
+```
+
+
+```{r}
+set.seed(12345)
+p_ANN <- predict(ANN_model, validation)
+
+
+cfANN <- confusionMatrix(p_ANN, validation$classe)
+cfANN
+```
+
+
+##3) SVM
+```{r, cache=T}
+set.seed(12345)
+SVM_model <- train(classe ~ ., data = training, 
+                   method = "svmRadial", 
+                   trControl = fitControl, tuneLength=5)
+SVM_model
+```
+
+```{r}
+set.seed(12345)
+p_SVM <- predict(SVM_model, validation)
+
+
+cfSVM <- confusionMatrix(p_SVM, validation$classe)
+cfSVM
+```
+
+##3) Decision Tree
+```{r, cache=T}
+set.seed(12345)
+DT_model <- train(classe ~ ., data = training, 
+                  method="rpart", 
+                  trControl = fitControl, tuneLength=5)
+DT_model
+```
+
+```{r}
+set.seed(12345)
+p_DT <- predict(DT_model, validation)
+
+
+cfDT <- confusionMatrix(p_DT, validation$classe)
+cfDT
+```
+
+##4) Random Forest
+```{r, cache=T}
+set.seed(12345)
+RF_model <- train(classe ~ ., data = training, 
+                  method = "rf", 
+                  trControl = fitControl, tuneLength=5)
+RF_model
+```
+
+```{r}
+set.seed(12345)
+p_RF <- predict(RF_model, validation)
+
+
+cfRF <- confusionMatrix(p_RF, validation$classe)
+cfRF
+```
+
+
+##5) Boosting
+```{r, cache=T, results='hide'}
+set.seed(12345)
+GBM_model <- train(classe~., data=training, 
+                   method="gbm", trControl=fitControl, tuneLength=5)
+```
+
+```{r}
+GBM_model
+```
+
+```{r}
+set.seed(12345)
+p_GBM <- predict(GBM_model, validation)
+
+cfGBM <- confusionMatrix(p_GBM, validation$classe)
+cfGBM
+```
+
+
+If the different results are summarized in a table:
+
+```{r}
+results <- resamples(list(KNN=KNN_model, ANN=ANN_model, 
+                          SVM=SVM_model, DT=DT_model, RF=RF_model, GBM=GBM_model))
+summary(results)
+```
+
+
+```{r}
+dotplot(results, main= "Selection algorithm behaviour in the train dataset")
+```
+
+
+```{r}
+acc_results_test <- c(cfKNN$overall['Accuracy'], 
+                      cfANN$overall['Accuracy'], cfSVM$overall['Accuracy'],
+                      cfDT$overall['Accuracy'], cfRF$overall['Accuracy'], cfGBM$overall['Accuracy'])
+kappa_results_test <- c(cfKNN$overall['Kappa'], 
+                        cfANN$overall['Kappa'], cfSVM$overall['Kappa'],
+                        cfDT$overall['Kappa'], cfRF$overall['Kappa'], cfGBM$overall['Kappa'])
+spec_results_test <- c(cfKNN$byClass[3,1], 
+                       cfANN$byClass[3,1], cfSVM$byClass[3,1],
+                       cfDT$byClass[3,1], cfRF$byClass[3,1], cfGBM$byClass[3,1])
+res_table <- data.frame(Accuracy = acc_results_test, Kappa = kappa_results_test, Specificity_Classe = spec_results_test, row.names = c("k-Nearest Neighbour", "Artificial Neural Network", "Support Vector Machine", "Decision Tree", "Random Forest", "GBM"))
+pander(res_table, keep.line.breaks = TRUE, style = 'grid', justify = 'left')
+```
+
+
+As can be shown in the previous graphs, Boosting Machine learning gives the best prediction compared with the rest of the machine learning algorithms. Using this approach in roder to predict the `test` dataset gives the following results:
+
+```{r}
+predict(GBM_model, testing03[, -length(names(testing03))])
+```
+
+
